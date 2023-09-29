@@ -1,18 +1,18 @@
 from django.contrib.auth import get_user_model
 from django.db import models
-from django.db.models import Count
-from django.utils import timezone
 from django.urls import reverse
+from django.utils import timezone
 
 from core.models import PublishedModel
 
 User = get_user_model()
 
+
 class Tag(models.Model):
     tag = models.CharField('Тег', max_length=20)
 
     def __str__(self):
-        return self.tag 
+        return self.tag
 
 
 class SortingPost(models.Manager):
@@ -82,8 +82,8 @@ class Post(PublishedModel):
     )
     objects = models.Manager()
     sorting_objects = SortingPost()
-    image = models.ImageField('Изображение', upload_to='posts_images', blank=True)
-
+    image = models.ImageField(
+        'Изображение', upload_to='posts_images', blank=True)
 
     class Meta:
         verbose_name = 'публикация'
@@ -91,10 +91,10 @@ class Post(PublishedModel):
 
     def __str__(self):
         return self.title
-    
+
     def get_absolute_url(self):
         return reverse('blog:index', kwargs={'pk': self.pk})
-    
+
     @property
     def comment_count(self):
         return self.comments.count()
@@ -103,7 +103,7 @@ class Post(PublishedModel):
 class Comment(models.Model):
     text = models.TextField('Текст комментария')
     post = models.ForeignKey(
-        Post, 
+        Post,
         on_delete=models.CASCADE,
         related_name='comments',
     )

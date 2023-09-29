@@ -1,16 +1,16 @@
-from django.shortcuts import get_list_or_404, get_object_or_404, render, redirect
-from django.views.generic import (
-    CreateView, DeleteView, DetailView, ListView, UpdateView
-)
-from django.core.paginator import Paginator
-from django.core.exceptions import ValidationError
 from django.contrib.auth.decorators import login_required
-from blog.models import Category, Post, Comment, User
-from django.db.models import Q
-from .forms import PostForm, CommentForm, UserForm
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
-from django.http import HttpResponse, Http404
+from django.views.generic import (CreateView, DeleteView, DetailView, ListView,
+                                  UpdateView)
+
+from blog.models import Category, Comment, Post, User
+
+from .forms import CommentForm, PostForm, UserForm
 
 
 @login_required
@@ -35,7 +35,7 @@ def edit_comment(request, pk, comment_id):
     post = get_object_or_404(Post, pk=pk)
     comment = get_object_or_404(Comment, pk=comment_id, author=request.user)
     if request.method == 'POST':
-        form = CommentForm(request.POST or None, instance=comment)
+        form = CommentForm(request.POST, instance=comment)
         if form.is_valid():
             form.save()
         return redirect('blog:post_detail', pk=pk)
@@ -48,11 +48,12 @@ def edit_comment(request, pk, comment_id):
     }
     return render(request, 'blog/comment.html', context)
 
+
 @login_required
 def delete_comment(request, pk, comment_id):
     comment = get_object_or_404(Comment, id=comment_id)
-    if request.method == 'POST':
-        if request.user == comment.author:
+    if request.user.is_authenticated and request.user == comment.author:
+        if request.method == 'POST':
             comment.delete()
             return redirect('blog:post_detail', pk=pk)
     context = {
@@ -72,21 +73,16 @@ def index(request):
     page_obj = paginator.get_page(page_number)
     context = {'page_obj': page_obj}
     return render(request, template_name, context)
-    
-@login_required
+
+
 def profile(request, username):
     template_name = 'blog/post_list.html'
-    #profile = User.objects.get(username=username)
-    try:
-        profile = User.objects.get(username=username)
-    except User.DoesNotExist:
-        return render(request, 'pages/404.html', status=404)
-    user_post = get_list_or_404(
-        Post.sorting_objects.select_related(
+    profile = get_object_or_404(User, username=username)
+    user_post = (
+        Post.objects.select_related(
             'author', 'location', 'category'
         ).filter(
-            author__username=username,
-            is_published = True
+            author=profile.pk
         ).order_by('-pub_date')
     )
     paginator = Paginator(user_post, 10)
@@ -96,10 +92,11 @@ def profile(request, username):
                'page_obj': user_post}
     return render(request, template_name, context)
 
+
 @login_required
 def edit_profile(request):
     if request.method == 'POST':
-        form = UserForm(request.POST,instance=request.user)
+        form = UserForm(request.POST, instance=request.user)
         if form.is_valid():
             form.save()
             profile_url = reverse('blog:profile', args=[request.user.username])
@@ -122,36 +119,36 @@ class PostListView(ListView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        return context 
+        return context
 
 
-class PostCreateView(PostFormMixin, CreateView):
+class PostCreateView(LoginRequiredMixin, PostFormMixin, CreateView):
     model = Post
 
     def get_success_url(self):
         post = self.object
-        return reverse_lazy('blog:post_detail', kwargs={'pk': post.pk})
+        return reverse_lazy('blog:profile', kwargs={'username': post.author})
 
     def form_valid(self, form):
         form.instance.author = self.request.user
-        if form.instance.pub_date <= timezone.now():
-            form.instance.is_published = True
         return super().form_valid(form)
 
 
-class PostUpdateView(PostFormMixin, UpdateView):
+class PostUpdateView(LoginRequiredMixin, PostFormMixin, UpdateView):
     model = Post
 
     def get_success_url(self):
         post = self.object
         return reverse_lazy('blog:post_detail', kwargs={'pk': post.pk})
-        
+
     def dispatch(self, request, *args, **kwargs):
-        get_object_or_404(Post, pk=kwargs['pk'], author=request.user)
+        instance = get_object_or_404(Post, pk=kwargs['pk'])
+        if instance.author != request.user:
+            return redirect('blog:post_detail', pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
 
-class PostDeleteView(DeleteView):
+class PostDeleteView(LoginRequiredMixin, DeleteView):
     model = Post
     template_name = 'blog/create.html'
     success_url = reverse_lazy('blog:index')
@@ -170,20 +167,21 @@ class PostDetailView(DetailView):
         context = super().get_context_data(**kwargs)
         context['form'] = CommentForm()
         context['comments'] = (
-            self.object.comments.select_related('author')
+            self.object.comments.select_related(
+                'author')
         )
         return context
-    
+
 
 def category_posts(request, category_slug):
     template_name = 'blog/category.html'
-    category_post = get_list_or_404(
-        Post.sorting_objects.select_related(
+    category_post = (
+        Post.objects.select_related(
             'author', 'location', 'category'
         ).filter(
-            category__slug=category_slug).order_by('-pub_date'),
-        category__is_published=True
-    )
+            category__slug=category_slug,
+            is_published=True,
+            pub_date__lte=timezone.now()).order_by('-pub_date'))
     paginator = Paginator(category_post, 10)
     page_number = request.GET.get('page')
     category_post = paginator.get_page(page_number)
