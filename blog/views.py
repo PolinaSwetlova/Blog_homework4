@@ -176,11 +176,12 @@ class PostDetailView(DetailView):
     
     def dispatch(self, request, *args, **kwargs):
         instance = get_object_or_404(Post, id=kwargs['pk'])
-        if instance.author == request.user:
+        if instance.author == request.user or (
+            instance.is_published and instance.created_at <= timezone.now(
+            ) and instance.category.is_published):
             return super().dispatch(request, *args, **kwargs)
-        if instance.is_published and instance.created_at <= timezone.now() and instance.category.is_published:
-            return super().dispatch(request, *args, **kwargs)
-        raise Http404("Post not found")
+        else:
+            raise Http404("Post not found")
 
 
 def category_posts(request, category_slug):
