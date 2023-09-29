@@ -122,7 +122,7 @@ class PostListView(ListView):
         return context
 
 
-class PostCreateView(LoginRequiredMixin, PostFormMixin, CreateView):
+class PostCreateView(PostFormMixin, LoginRequiredMixin, CreateView):
     model = Post
 
     def get_success_url(self):
@@ -134,8 +134,9 @@ class PostCreateView(LoginRequiredMixin, PostFormMixin, CreateView):
         return super().form_valid(form)
 
 
-class PostUpdateView(LoginRequiredMixin, PostFormMixin, UpdateView):
+class PostUpdateView(PostFormMixin, LoginRequiredMixin, UpdateView):
     model = Post
+    pk_url_kwargs = 'post_id'
 
     def get_success_url(self):
         post = self.object
@@ -143,7 +144,7 @@ class PostUpdateView(LoginRequiredMixin, PostFormMixin, UpdateView):
 
     def dispatch(self, request, *args, **kwargs):
         instance = get_object_or_404(Post, pk=kwargs['pk'])
-        if instance.author != request.user:
+        if instance.author != request.user :
             return redirect('blog:post_detail', pk=kwargs['pk'])
         return super().dispatch(request, *args, **kwargs)
 
@@ -162,7 +163,6 @@ class PostDeleteView(LoginRequiredMixin, DeleteView):
 
 class PostDetailView(DetailView):
     model = Post
-    ordering = 'created_at'
     paginate_by = 10
 
     def get_context_data(self, **kwargs):
@@ -173,6 +173,14 @@ class PostDetailView(DetailView):
                 'author')
         )
         return context
+    
+    def dispatch(self, request, *args, **kwargs):
+        instance = get_object_or_404(Post, id=kwargs['pk'])
+        if instance.author == request.user:
+            return super().dispatch(request, *args, **kwargs)
+        if instance.is_published and instance.created_at <= timezone.now() and instance.category.is_published:
+            return super().dispatch(request, *args, **kwargs)
+        raise Http404("Post not found")
 
 
 def category_posts(request, category_slug):
